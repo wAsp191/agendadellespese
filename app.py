@@ -6,10 +6,9 @@ from datetime import date
 import io
 from openpyxl.styles import Font, Alignment
 
-# --- 1. SICUREZZA ---
+# --- 1. SICUREZZA E CONFIGURAZIONE ---
 PASSWORD_ACCESSO = "poggio2026" 
 
-# Configurazione Pagina (Mobile First)
 st.set_page_config(page_title="Bilancio Casa", layout="centered", page_icon="💰")
 
 if "autenticato" not in st.session_state:
@@ -30,7 +29,7 @@ if not st.session_state["autenticato"]:
 DATA_FILE = "spese_casa_v4.csv"
 RECURRING_FILE = "modelli_ricorrenti_v4.csv"
 
-# Mappa Colori Rigorosa
+# Mappa Colori Rigorosa come richiesto
 color_map = {
     "Acqua": "#0000FF",         # Blu
     "Luce": "#FFFF00",          # Giallo
@@ -58,7 +57,7 @@ def load_data(file, columns):
 df = load_data(DATA_FILE, ["Data", "Categoria", "Descrizione", "Importo", "Periodo"])
 df_rec = load_data(RECURRING_FILE, ["Categoria", "Descrizione", "Importo", "Cadenza", "Data"])
 
-# --- FUNZIONE EXCEL PRO ---
+# --- 3. FUNZIONE EXCEL PRO (Celle grandi e Totali) ---
 def to_excel_pro(df_to_download):
     output = io.BytesIO()
     df_excel = df_to_download.copy()
@@ -68,29 +67,33 @@ def to_excel_pro(df_to_download):
         df_excel.to_excel(writer, index=False, sheet_name='Report Spese')
         workbook = writer.book
         worksheet = writer.sheets['Report Spese']
-        bold_font = Font(bold=True, size=12)
+        bold_font = Font(bold=True, size=14) # Font più grande
         
+        # Formattazione righe e celle
         for row in worksheet.iter_rows(min_row=1, max_row=len(df_excel)+1):
             for cell in row:
                 cell.alignment = Alignment(vertical='center', horizontal='left')
-                if cell.row == 1: cell.font = bold_font
-            worksheet.row_dimensions[row[0].row].height = 25
+                if cell.row == 1: 
+                    cell.font = bold_font
+            worksheet.row_dimensions[row[0].row].height = 30 # Altezza riga maggiorata
 
+        # Larghezza colonne maggiorata
         for col in worksheet.columns:
-            worksheet.column_dimensions[col[0].column_letter].width = 25
+            worksheet.column_dimensions[col[0].column_letter].width = 30
             
+        # Riga Totale finale
         last_row = len(df_excel) + 2
         worksheet.cell(row=last_row, column=3, value="TOTALE GENERALE:").font = bold_font
         worksheet.cell(row=last_row, column=4, value=df_to_download['Importo'].sum()).font = bold_font
-        worksheet.row_dimensions[last_row].height = 30
+        worksheet.row_dimensions[last_row].height = 40
     return output.getvalue()
 
-# --- SIDEBAR ---
+# --- 4. SIDEBAR ---
 with st.sidebar:
     st.header("💰 Opzioni")
     anni = sorted(df['Data'].dt.year.unique(), reverse=True) if not df.empty else [date.today().year]
-    anno_sel = st.sidebar.selectbox("Anno", anni)
-    cat_sel = st.sidebar.selectbox("Filtra Categoria", cat_lista_filtro)
+    anno_sel = st.selectbox("Anno", anni)
+    cat_sel = st.selectbox("Filtra Categoria", cat_lista_filtro)
     
     if not df.empty:
         df_f_excel = df[df['Data'].dt.year == anno_sel].copy()
@@ -103,12 +106,12 @@ with st.sidebar:
         st.session_state["autenticato"] = False
         st.rerun()
 
-# Filtraggio
+# Filtraggio dati dashboard
 df_f = df[df['Data'].dt.year == anno_sel].copy() if not df.empty else pd.DataFrame()
 if cat_sel != "Tutte" and not df_f.empty:
     df_f = df_f[df_f["Categoria"] == cat_sel]
 
-# --- UI PRINCIPALE ---
+# --- 5. UI PRINCIPALE ---
 st.title("💰 Spese di Casa")
 
 with st.expander("➕ **AGGIUNGI SPESA**", expanded=False):
@@ -125,6 +128,7 @@ with st.expander("➕ **AGGIUNGI SPESA**", expanded=False):
                 df = pd.concat([df, nuova], ignore_index=True); df.to_csv(DATA_FILE, index=False)
                 st.rerun()
     with t2:
+        if df_rec.empty: st.info("Configura un modello in fondo.")
         for idx, row in df_rec.iterrows():
             if st.button(f"📌 {row['Descrizione']} (€{row['Importo']})", key=f"r_{idx}", use_container_width=True):
                 nuova_s = pd.DataFrame([[pd.to_datetime(date.today()), row['Categoria'], row['Descrizione'], row['Importo'], "Ricorrente"]], columns=df.columns)
@@ -134,34 +138,36 @@ with st.expander("➕ **AGGIUNGI SPESA**", expanded=False):
 if not df_f.empty:
     st.metric(f"Totale {cat_sel}", f"€ {df_f['Importo'].sum():,.2f}")
     
-    # 1. Grafico a Torta
+    # 1. GRAFICO A TORTA (Con Somme nelle Etichette)
     df_pie = df_f.groupby('Categoria')['Importo'].sum().reset_index()
-    st.plotly_chart(px.pie(df_pie, values='Importo', names='Categoria', hole=0.5, 
-                           title="Suddivisione per Categoria", color='Categoria', color_discrete_map=color_map), use_container_width=True)
+    # Creazione etichetta personalizzata: "Categoria: €Totale"
+    df_pie['Etichetta_Completa'] = df_pie.apply(lambda r: f"{r['Categoria']}: €{r['Importo']:,.2f}", axis=1)
     
-    # 2. Grafico a Barre Impilate (Stacked)
+    fig_pie = px.pie(df_pie, values='Importo', names='Etichetta_Completa', hole=0.5, 
+                     title="Suddivisione per Categoria",
+                     color='Categoria', color_discrete_map=color_map)
+    st.plotly_chart(fig_pie, use_container_width=True)
+    
+    # 2. GRAFICO A BARRE IMPILATE (Stacked)
     mesi_nomi = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"]
     df_m = df_f.copy()
-    df_m['Mese'] = df_m['Data'].dt.month
+    df_m['M_Num'] = df_m['Data'].dt.month
+    res_m = df_m.groupby(['M_Num', 'Categoria'])['Importo'].sum().reset_index()
     
-    # Raggruppiamo per mese e categoria per creare l'effetto "uno sopra l'altro"
-    res_m = df_m.groupby(['Mese', 'Categoria'])['Importo'].sum().reset_index()
-    
-    fig_bar = px.bar(res_m, x='Mese', y='Importo', color='Categoria',
+    fig_bar = px.bar(res_m, x='M_Num', y='Importo', color='Categoria',
                      title=f"Andamento Mensile Impilato {anno_sel}",
-                     color_discrete_map=color_map,
-                     category_orders={"Mese": list(range(1, 13))}) # Forza l'ordine dei mesi
+                     color_discrete_map=color_map)
     
     fig_bar.update_layout(
         xaxis=dict(tickmode='array', tickvals=list(range(1, 13)), ticktext=mesi_nomi),
-        barmode='stack', # <--- Cruciale: mette i colori uno sopra l'altro
-        xaxis_title="Mesi dell'anno",
-        yaxis_title="Totale Speso (€)",
+        barmode='stack',
+        xaxis_title="Mesi",
+        yaxis_title="Totale Mensile (€)",
         legend_title="Categorie"
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
-    # Storico e Eliminazione
+    # 6. STORICO E ELIMINAZIONE
     st.subheader("📜 Ultime voci")
     df_mini = df_f[['Data', 'Categoria', 'Descrizione', 'Importo']].copy().sort_values("Data", ascending=False)
     df_mini['Data'] = df_mini['Data'].dt.strftime('%d/%m/%Y')
@@ -173,14 +179,14 @@ if not df_f.empty:
         if st.button("ELIMINA", use_container_width=True):
             df = df.drop(idx_del); df.to_csv(DATA_FILE, index=False); st.rerun()
 else:
-    st.info("Nessun dato trovato.")
+    st.info("Nessun dato trovato per i filtri selezionati.")
 
-# Configurazione Modelli
+# --- 7. CONFIGURAZIONE MODELLI ---
 st.divider()
 with st.expander("⚙️ CONFIGURA MODELLI"):
     with st.form("f_mod"):
         c1 = st.selectbox("Categoria", cat_lista_clean)
-        c2 = st.text_input("Nome Modello")
+        c2 = st.text_input("Nome (es. Netflix)")
         c3 = st.number_input("Importo", min_value=0.0)
         if st.form_submit_button("CREA", use_container_width=True):
             nuovo_m = pd.DataFrame([[c1, c2, c3, "Mensile", date.today()]], columns=["Categoria", "Descrizione", "Importo", "Cadenza", "Data"])
