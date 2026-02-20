@@ -34,7 +34,7 @@ with st.expander("➕ **Aggiungi Nuova Spesa o Modello**", expanded=False):
             col1, col2, col3 = st.columns(3)
             with col1:
                 d = st.date_input("Data", date.today())
-                c = st.selectbox("Categoria", ["Luce", "Gas", "Acqua", "TARI", "Internet", "Alimentari", "Manutenzione", "Altro"])
+                c = st.selectbox("Categoria", ["Luce", "Gas", "Acqua", "Tari", "Telefono/Internet", "Alimentari", "Manutenzione", "Abbonamenti", "Altro"])
             with col2:
                 imp = st.number_input("Importo (€)", min_value=0.0, step=0.01)
                 per = st.text_input("Periodo", placeholder="es. Gen-Feb")
