@@ -8,16 +8,27 @@ import io
 # Configurazione Pagina
 st.set_page_config(page_title="Home Budget Pro", layout="wide", page_icon="💰")
 
+# Usiamo nomi file v4 per coerenza con l'ultimo salvataggio
 DATA_FILE = "spese_casa_v4.csv"
 RECURRING_FILE = "modelli_ricorrenti_v4.csv"
 
+# --- FUNZIONE CARICAMENTO CON PULIZIA PROFONDA ---
 def load_data(file, columns):
     if os.path.exists(file):
-        df_loaded = pd.read_csv(file)
-        if not df_loaded.empty and "Data" in df_loaded.columns:
-            df_loaded['Data'] = pd.to_datetime(df_loaded['Data'], errors='coerce')
-            df_loaded = df_loaded.dropna(subset=['Data'])
-        return df_loaded
+        try:
+            df_loaded = pd.read_csv(file)
+            if not df_loaded.empty:
+                # Forza la colonna Data a essere di tipo datetime
+                df_loaded['Data'] = pd.to_datetime(df_loaded['Data'], errors='coerce')
+                # Rimuove righe dove la data è fallita (NaT)
+                df_loaded = df_loaded.dropna(subset=['Data'])
+                # Assicura che le altre colonne esistano
+                for col in columns:
+                    if col not in df_loaded.columns:
+                        df_loaded[col] = ""
+            return df_loaded
+        except Exception:
+            return pd.DataFrame(columns=columns)
     return pd.DataFrame(columns=columns)
 
 # Inizializzazione
@@ -28,22 +39,30 @@ st.title("🏠 Dashboard Spese Casa")
 
 # --- SIDEBAR E FILTRI ---
 st.sidebar.header("🔍 Filtri e Strumenti")
-anni_disponibili = sorted(df['Data'].dt.year.unique(), reverse=True) if not df.empty else [date.today().year]
+
+# Calcolo anni sicuro
+if not df.empty:
+    anni_disponibili = sorted(df['Data'].dt.year.unique(), reverse=True)
+else:
+    anni_disponibili = [date.today().year]
+
 anno_selezionato = st.sidebar.selectbox("Seleziona Anno", anni_disponibili)
 categorie_lista = ["Tutte", "Luce", "Gas", "Acqua", "TARI", "Internet", "Alimentari", "Manutenzione", "Altro"]
 filtro_cat = st.sidebar.selectbox("Filtra per Categoria", categorie_lista)
 
-# Logica Filtro
-df_filtrato = df[df['Data'].dt.year == anno_selezionato].copy()
-if filtro_cat != "Tutte":
-    df_filtrato = df_filtrato[df_filtrato["Categoria"] == filtro_cat]
+# Logica Filtro (Senza crash ora)
+df_filtrato = df.copy()
+if not df_filtrato.empty:
+    df_filtrato = df_filtrato[df_filtrato['Data'].dt.year == anno_selezionato]
+    if filtro_cat != "Tutte":
+        df_filtrato = df_filtrato[df_filtrato["Categoria"] == filtro_cat]
 
 # --- FUNZIONE EXPORT EXCEL ---
 def to_excel(df_to_download):
     output = io.BytesIO()
-    # Pulizia date per Excel
     df_excel = df_to_download.copy()
-    df_excel['Data'] = df_excel['Data'].dt.strftime('%d/%m/%Y')
+    if not df_excel.empty:
+        df_excel['Data'] = df_excel['Data'].dt.strftime('%d/%m/%Y')
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_excel.to_excel(writer, index=False, sheet_name='Spese')
     return output.getvalue()
@@ -53,7 +72,7 @@ if not df_filtrato.empty:
     st.sidebar.download_button(
         label="📥 Esporta Filtro in Excel",
         data=excel_data,
-        file_name=f"Report_Spese_{anno_selezionato}_{filtro_cat}.xlsx",
+        file_name=f"Report_Spese_{anno_selezionato}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
@@ -69,7 +88,7 @@ with st.expander("➕ **Aggiungi Nuova Spesa o Modello**", expanded=False):
             per = c2.text_input("Periodo", placeholder="es. Gen-Feb")
             des = c3.text_input("Descrizione", placeholder="es. Bolletta Enel")
             if st.form_submit_button("Salva Spesa"):
-                nuova_riga = pd.DataFrame([[pd.to_datetime(d), cat, des, imp, per]], columns=df.columns)
+                nuova_riga = pd.DataFrame([[pd.to_datetime(d), cat, des, imp, per]], columns=["Data", "Categoria", "Descrizione", "Importo", "Periodo"])
                 df = pd.concat([df, nuova_riga], ignore_index=True)
                 df.to_csv(DATA_FILE, index=False)
                 st.rerun()
@@ -77,15 +96,14 @@ with st.expander("➕ **Aggiungi Nuova Spesa o Modello**", expanded=False):
         if not df_rec.empty:
             for i, row in df_rec.iterrows():
                 col_a, col_b = st.columns([4, 1])
-                col_a.write(f"**{row['Descrizione']}** ({row['Cadenza']}) - €{row['Importo']}")
+                col_a.write(f"**{row['Descrizione']}** - €{row['Importo']}")
                 if col_b.button(f"Inserisci", key=f"rec_{i}"):
-                    nuova_s = pd.DataFrame([[pd.to_datetime(date.today()), row['Categoria'], row['Descrizione'], row['Importo'], "Ricorrente"]], columns=df.columns)
+                    nuova_s = pd.DataFrame([[pd.to_datetime(date.today()), row['Categoria'], row['Descrizione'], row['Importo'], "Ricorrente"]], columns=["Data", "Categoria", "Descrizione", "Importo", "Periodo"])
                     df = pd.concat([df, nuova_s], ignore_index=True)
                     df.to_csv(DATA_FILE, index=False)
-                    st.toast("Aggiunto!")
                     st.rerun()
 
-# --- GRAFICI ---
+# --- DASHBOARD ---
 if not df_filtrato.empty:
     st.divider()
     df_pie = df_filtrato.groupby('Categoria')['Importo'].sum().reset_index()
@@ -105,7 +123,6 @@ if not df_filtrato.empty:
         fig_area.update_layout(yaxis_range=[0, max(resoconto_mesi['Importo'].max() + 100, 800)])
         st.plotly_chart(fig_area, use_container_width=True)
 
-    # --- STORICO ED ELIMINAZIONE ---
     st.divider()
     st.subheader("📜 Storico")
     df_display = df_filtrato.copy().sort_values(by="Data", ascending=False)
@@ -120,7 +137,7 @@ if not df_filtrato.empty:
             df.to_csv(DATA_FILE, index=False)
             st.rerun()
 else:
-    st.info("Nessun dato trovato.")
+    st.info("Nessun dato trovato per i filtri selezionati.")
 
 # --- MODELLI (IN FONDO) ---
 st.divider()
@@ -132,7 +149,7 @@ with st.expander("⚙️ Modelli Ricorrenti"):
         rimp = c3.number_input("Importo", min_value=0.0)
         rcad = c4.selectbox("Cadenza", ["Mensile", "Bimestrale", "Annuale"])
         if st.form_submit_button("Salva"):
-            nuovo_m = pd.DataFrame([[rcat, rdes, rimp, rcad, date.today()]], columns=df_rec.columns)
+            nuovo_m = pd.DataFrame([[rcat, rdes, rimp, rcad, date.today()]], columns=["Categoria", "Descrizione", "Importo", "Cadenza", "Data"])
             df_rec = pd.concat([df_rec, nuovo_m], ignore_index=True)
             df_rec.to_csv(RECURRING_FILE, index=False)
             st.rerun()
