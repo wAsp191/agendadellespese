@@ -114,4 +114,23 @@ if not df_filtrato.empty:
             index_da_eliminare = int(scelta.split(":")[0])
             df = df.drop(index_da_eliminare)
             df.to_csv(DATA_FILE, index=False)
-            st.
+            st.warning("Voce eliminata.")
+            st.rerun()
+
+else:
+    st.info(f"Nessun dato trovato per la categoria: {filtro_cat}")
+
+# --- SEZIONE MODELLI (IN FONDO) ---
+st.divider()
+with st.expander("⚙️ Gestione Modelli Ricorrenti"):
+    # ... (Codice modelli invariato)
+    with st.form("nuovo_mod_form"):
+        c1, c2, c3 = st.columns(3)
+        rc = c1.selectbox("Categoria", ["Luce", "Gas", "Acqua", "TARI", "Internet", "Altro"])
+        rd = c2.text_input("Descrizione Modello")
+        ri = c3.number_input("Importo Standard", min_value=0.0)
+        if st.form_submit_button("Salva Modello"):
+            nuovo_m = pd.DataFrame([[pd.to_datetime(date.today()), rc, rd, ri, "Modello"]], columns=df.columns)
+            df_rec = pd.concat([df_rec, nuovo_m], ignore_index=True)
+            df_rec.to_csv(RECURRING_FILE, index=False)
+            st.rerun()
