@@ -7,7 +7,7 @@ import io
 from openpyxl.styles import Font
 
 # --- 1. SICUREZZA ---
-PASSWORD_ACCESSO = "casa2026" # <--- CAMBIA QUESTA PASSWORD!
+PASSWORD_ACCESSO = "poggio2026" # <--- CAMBIA QUESTA PASSWORD!
 
 # Configurazione Pagina (Mobile First)
 st.set_page_config(page_title="Bilancio Casa", layout="centered", page_icon="🏦")
